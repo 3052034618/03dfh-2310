@@ -8,6 +8,8 @@ import ObservationPanel from './components/ObservationPanel';
 import AbnormalPanel from './components/AbnormalPanel';
 import HandoverPanel from './components/HandoverPanel';
 
+const STORAGE_KEY = 'ipl_console_data_v1';
+
 const tabs: { key: TabKey; name: string; icon: string }[] = [
   { key: 'queue', name: '到店队列', icon: '📋' },
   { key: 'precheck', name: '术前核查', icon: '✅' },
@@ -17,21 +19,66 @@ const tabs: { key: TabKey; name: string; icon: string }[] = [
   { key: 'handover', name: '交班日志', icon: '📝' },
 ];
 
+interface StoredData {
+  customers: Customer[];
+  preChecks: PreCheckRecord[];
+  parameters: ParameterRecord[];
+  observations: PostObservationRecord[];
+  abnormalReports: AbnormalReport[];
+  handoverLogs: HandoverLog[];
+  lastSaved: number;
+}
+
+function loadFromStorage(): StoredData | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw) as StoredData;
+    return data;
+  } catch (e) {
+    console.error('读取本地数据失败', e);
+    return null;
+  }
+}
+
+function saveToStorage(data: StoredData) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  } catch (e) {
+    console.error('保存本地数据失败', e);
+  }
+}
+
 export default function App() {
+  const stored = loadFromStorage();
+
   const [activeTab, setActiveTab] = useState<TabKey>('queue');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
-  const [customers, setCustomers] = useState<Customer[]>(mockCustomers);
-  const [preChecks, setPreChecks] = useState<PreCheckRecord[]>(mockPreChecks);
-  const [parameters, setParameters] = useState<ParameterRecord[]>(mockParameters);
-  const [observations, setObservations] = useState<PostObservationRecord[]>(mockObservations);
-  const [abnormalReports, setAbnormalReports] = useState<AbnormalReport[]>(mockAbnormalReports);
-  const [handoverLogs, setHandoverLogs] = useState<HandoverLog[]>(mockHandoverLogs);
+  const [customers, setCustomers] = useState<Customer[]>(stored?.customers ?? mockCustomers);
+  const [preChecks, setPreChecks] = useState<PreCheckRecord[]>(stored?.preChecks ?? mockPreChecks);
+  const [parameters, setParameters] = useState<ParameterRecord[]>(stored?.parameters ?? mockParameters);
+  const [observations, setObservations] = useState<PostObservationRecord[]>(stored?.observations ?? mockObservations);
+  const [abnormalReports, setAbnormalReports] = useState<AbnormalReport[]>(stored?.abnormalReports ?? mockAbnormalReports);
+  const [handoverLogs, setHandoverLogs] = useState<HandoverLog[]>(stored?.handoverLogs ?? mockHandoverLogs);
   const [currentTime, setCurrentTime] = useState(new Date());
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    const data: StoredData = {
+      customers,
+      preChecks,
+      parameters,
+      observations,
+      abnormalReports,
+      handoverLogs,
+      lastSaved: Date.now(),
+    };
+    saveToStorage(data);
+  }, [customers, preChecks, parameters, observations, abnormalReports, handoverLogs]);
 
   const selectedCustomer = customers.find((c) => c.id === selectedCustomerId) || null;
 
@@ -53,11 +100,27 @@ export default function App() {
   };
 
   const addPreCheck = (record: PreCheckRecord) => {
-    setPreChecks((prev) => [record, ...prev]);
+    setPreChecks((prev) => {
+      const existing = prev.findIndex((p) => p.customerId === record.customerId);
+      if (existing >= 0) {
+        const updated = [...prev];
+        updated[existing] = record;
+        return updated;
+      }
+      return [record, ...prev];
+    });
   };
 
   const addParameter = (record: ParameterRecord) => {
-    setParameters((prev) => [record, ...prev]);
+    setParameters((prev) => {
+      const existing = prev.findIndex((p) => p.customerId === record.customerId);
+      if (existing >= 0) {
+        const updated = [...prev];
+        updated[existing] = record;
+        return updated;
+      }
+      return [record, ...prev];
+    });
   };
 
   const addObservation = (record: PostObservationRecord) => {
@@ -171,6 +234,11 @@ export default function App() {
         <div className="sidebar-footer">
           <div className="user">治疗师：王技师</div>
           <div>工号：T2024001</div>
+          {stored?.lastSaved && (
+            <div style={{ marginTop: '6px', fontSize: '11px', opacity: 0.6 }}>
+              数据已本地保存
+            </div>
+          )}
         </div>
       </aside>
 

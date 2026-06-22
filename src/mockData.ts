@@ -132,6 +132,9 @@ export const mockObservations: PostObservationRecord[] = [
     customerId: 'C002',
     startTime: '10:50',
     duration: 1200,
+    startTimestamp: Date.now() - 1200 * 1000,
+    pauseStart: null,
+    pausedDuration: 0,
     areaReactions: [
       { area: '左颊', redness: '轻度', burning: '轻微', remark: '有温热感' },
       { area: '右颊', redness: '轻度', burning: '轻微' },

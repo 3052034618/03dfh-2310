@@ -80,7 +80,10 @@ export default function PreCheckPanel({
     return arr.includes(value) ? arr.filter((v) => v !== value) : [...arr, value];
   };
 
+  const hasPlan = !!selectedCustomer?.treatmentPlan;
+
   const canSubmit =
+    hasPlan &&
     form.nameVerified &&
     form.treatmentSites.length > 0 &&
     form.planReviewed;
@@ -158,19 +161,20 @@ export default function PreCheckPanel({
           </div>
         ) : (
           <>
+            {!selectedCustomer.treatmentPlan && (
+              <div className="alert alert-danger">
+                <span>🚫</span>
+                <div>
+                  <strong>该客户尚未关联医生疗程方案！</strong>
+                  <div style={{ marginTop: '4px' }}>请立即联系 <strong>{selectedCustomer.doctor}</strong> 开具并补录方案，<strong>补齐前禁止进入治疗流程</strong>。</div>
+                </div>
+              </div>
+            )}
+
             {selectedCustomer.treatmentPlan && (
               <div className="plan-reminder">
                 <div className="plan-reminder-title">⚠️ 请务必查看医生开具的疗程方案，严禁凭记忆操作</div>
                 <div className="plan-reminder-content">{selectedCustomer.treatmentPlan}</div>
-              </div>
-            )}
-
-            {!selectedCustomer.treatmentPlan && (
-              <div className="alert alert-danger">
-                <span>⚠️</span>
-                <div>
-                  <strong>未找到该客户的疗程方案！</strong> 请联系主治医生开具后再开始治疗，不得擅自操作。
-                </div>
               </div>
             )}
 
@@ -282,13 +286,25 @@ export default function PreCheckPanel({
                   <div className="section-title">方案确认</div>
                   <label
                     className={`checkbox-item ${form.planReviewed ? 'checked' : ''}`}
-                    style={{ maxWidth: 'none' }}
-                    onClick={() => setForm({ ...form, planReviewed: !form.planReviewed })}
+                    style={{
+                      maxWidth: 'none',
+                      opacity: hasPlan ? 1 : 0.5,
+                      cursor: hasPlan ? 'pointer' : 'not-allowed',
+                    }}
+                    onClick={() => {
+                      if (!hasPlan) return;
+                      setForm({ ...form, planReviewed: !form.planReviewed });
+                    }}
                   >
                     <input type="checkbox" checked={form.planReviewed} readOnly />
                     <span style={{ fontWeight: form.planReviewed ? 600 : 400 }}>
                       📋 已查看并确认医生开具的疗程方案，能量、脉宽、治疗次数与方案一致
                     </span>
+                    {!hasPlan && (
+                      <span className="tag tag-danger" style={{ marginLeft: 'auto' }}>
+                        缺少方案，无法确认
+                      </span>
+                    )}
                   </label>
                 </div>
 
@@ -309,7 +325,15 @@ export default function PreCheckPanel({
                     重置
                   </button>
                   <button className="btn btn-primary btn-lg" onClick={handleSubmit} disabled={!canSubmit}>
-                    💾 保存核查记录
+                    {!hasPlan
+                      ? '🚫 请先补录医生疗程方案'
+                      : !form.nameVerified
+                      ? '请完成身份确认'
+                      : form.treatmentSites.length === 0
+                      ? '请选择治疗部位'
+                      : !form.planReviewed
+                      ? '请确认已查看疗程方案'
+                      : '💾 保存核查记录'}
                   </button>
                 </div>
               </div>

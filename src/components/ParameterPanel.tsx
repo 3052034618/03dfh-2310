@@ -84,7 +84,9 @@ export default function ParameterPanel({
     }
   }, [selectedCustomer?.id, existingParam]);
 
-  const canSubmit = form.energy && form.pulseWidth && form.passes > 0;
+  const hasPlan = !!selectedCustomer?.treatmentPlan;
+
+  const canSubmit = hasPlan && form.energy && form.pulseWidth && form.passes > 0;
 
   const handleSubmit = () => {
     if (!selectedCustomer || !canSubmit) return;
@@ -160,6 +162,16 @@ export default function ParameterPanel({
           </div>
         ) : (
           <>
+            {!selectedCustomer.treatmentPlan && (
+              <div className="alert alert-danger">
+                <span>🚫</span>
+                <div>
+                  <strong>该客户尚未关联医生疗程方案！</strong>
+                  <div style={{ marginTop: '4px' }}>请立即联系 <strong>{selectedCustomer.doctor}</strong> 开具并补录方案，<strong>补齐前禁止确认参数开始治疗</strong>。</div>
+                </div>
+              </div>
+            )}
+
             {selectedCustomer.treatmentPlan && (
               <div className="plan-reminder">
                 <div className="plan-reminder-title">📋 医生开具的疗程方案（请严格对照执行）</div>
@@ -312,7 +324,9 @@ export default function ParameterPanel({
                     重置
                   </button>
                   <button className="btn btn-primary btn-lg" onClick={handleSubmit} disabled={!canSubmit}>
-                    💾 确认参数并开始治疗
+                    {!hasPlan
+                      ? '� 请先补录医生疗程方案'
+                      : '�💾 确认参数并开始治疗'}
                   </button>
                 </div>
               </div>

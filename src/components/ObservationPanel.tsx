@@ -15,6 +15,7 @@ const REDNESS_LEVELS = ['无', '轻度', '中度', '明显'] as const;
 const BURNING_LEVELS = ['无', '轻微', '明显', '强烈'] as const;
 
 function formatTime(sec: number) {
+  sec = Math.max(0, Math.floor(sec));
   const m = Math.floor(sec / 60);
   const s = sec % 60;
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
@@ -27,6 +28,26 @@ function createAreaReactions(): AreaReaction[] {
     burning: '无',
     remark: '',
   }));
+}
+
+function mergeAreaReactions(existing: AreaReaction[]): AreaReaction[] {
+  return AREAS.map((area) => {
+    const found = existing.find((r) => r.area === area);
+    if (found) return found;
+    return { area, redness: '无', burning: '无', remark: '' };
+  });
+}
+
+function calcElapsedSec(
+  startTimestamp: number | null,
+  pauseStart: number | null,
+  pausedDuration: number,
+  now: number
+): number {
+  if (!startTimestamp) return 0;
+  const end = pauseStart ?? now;
+  const ms = end - startTimestamp - pausedDuration;
+  return Math.max(0, Math.floor(ms / 1000));
 }
 
 export default function ObservationPanel({
@@ -42,10 +63,12 @@ export default function ObservationPanel({
     ? observations.find((o) => o.customerId === selectedCustomer.id)
     : null;
 
-  const [timerRunning, setTimerRunning] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
+  const [startTimestamp, setStartTimestamp] = useState<number | null>(null);
+  const [pauseStart, setPauseStart] = useState<number | null>(null);
+  const [pausedDuration, setPausedDuration] = useState<number>(0);
   const [startTime, setStartTime] = useState('');
-  const timerRef = useRef<number | null>(null);
+  const [now, setNow] = useState(Date.now());
+  const tickRef = useRef<number | null>(null);
 
   const [areaReactions, setAreaReactions] = useState<AreaReaction[]>(createAreaReactions());
   const [coldCompressDone, setColdCompressDone] = useState(false);
@@ -54,58 +77,70 @@ export default function ObservationPanel({
 
   useEffect(() => {
     if (existingObs) {
-      setElapsed(existingObs.duration);
+      setStartTimestamp(existingObs.startTimestamp ?? null);
+      setPauseStart(existingObs.pauseStart ?? null);
+      setPausedDuration(existingObs.pausedDuration ?? 0);
       setStartTime(existingObs.startTime);
-      setAreaReactions(existingObs.areaReactions.length > 0 ? existingObs.areaReactions : createAreaReactions());
+      setAreaReactions(
+        existingObs.areaReactions.length > 0
+          ? mergeAreaReactions(existingObs.areaReactions)
+          : createAreaReactions()
+      );
       setColdCompressDone(existingObs.coldCompressDone);
       setRepairMaskDone(existingObs.repairMaskDone);
       setSunscreenAdviceDone(existingObs.sunscreenAdviceDone);
-      setTimerRunning(!existingObs.completed);
     } else {
-      setElapsed(0);
+      setStartTimestamp(null);
+      setPauseStart(null);
+      setPausedDuration(0);
       setStartTime('');
       setAreaReactions(createAreaReactions());
       setColdCompressDone(false);
       setRepairMaskDone(false);
       setSunscreenAdviceDone(false);
-      setTimerRunning(false);
     }
   }, [selectedCustomer?.id, existingObs]);
 
   useEffect(() => {
-    if (timerRunning) {
-      timerRef.current = window.setInterval(() => {
-        setElapsed((prev) => prev + 1);
-      }, 1000);
-    } else {
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
-    }
+    tickRef.current = window.setInterval(() => setNow(Date.now()), 1000);
     return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
+      if (tickRef.current) clearInterval(tickRef.current);
     };
-  }, [timerRunning]);
+  }, []);
+
+  const isRunning = !!startTimestamp && !pauseStart && !existingObs?.completed;
+  const isPaused = !!startTimestamp && !!pauseStart;
+  const hasStarted = !!startTimestamp;
+
+  const elapsed = calcElapsedSec(startTimestamp, pauseStart, pausedDuration, now);
 
   const handleStartTimer = () => {
     if (!selectedCustomer) return;
-    if (!startTime) {
-      const now = new Date();
-      setStartTime(`${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`);
+    if (!hasStarted) {
+      const d = new Date();
+      setStartTimestamp(d.getTime());
+      setPauseStart(null);
+      setPausedDuration(0);
+      setStartTime(
+        `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+      );
+    } else if (isPaused) {
+      setPausedDuration((prev) => prev + (Date.now() - (pauseStart ?? 0)));
+      setPauseStart(null);
     }
-    setTimerRunning(true);
     updateCustomerStatus(selectedCustomer.id, 'observing');
   };
 
   const handlePauseTimer = () => {
-    setTimerRunning(false);
+    if (!isRunning) return;
+    setPauseStart(Date.now());
   };
 
   const handleResetTimer = () => {
-    setElapsed(0);
+    setStartTimestamp(null);
+    setPauseStart(null);
+    setPausedDuration(0);
     setStartTime('');
-    setTimerRunning(false);
   };
 
   const updateAreaReaction = (idx: number, field: keyof AreaReaction, value: string) => {
@@ -119,10 +154,30 @@ export default function ObservationPanel({
   const handleSave = (completed: boolean) => {
     if (!selectedCustomer) return;
 
+    let finalStart = startTimestamp;
+    let finalPause = pauseStart;
+    let finalPaused = pausedDuration;
+    if (completed && isRunning) {
+      finalPaused = pausedDuration;
+      finalPause = null;
+    } else if (completed && isPaused) {
+      finalPause = null;
+    }
+    if (!hasStarted) {
+      finalStart = null;
+      finalPause = null;
+      finalPaused = 0;
+    }
+
     const record: PostObservationRecord = {
       customerId: selectedCustomer.id,
       startTime: startTime || '未开始',
-      duration: elapsed,
+      duration: finalStart
+        ? calcElapsedSec(finalStart, finalPause, finalPaused, completed ? (pauseStart ?? Date.now()) : Date.now())
+        : 0,
+      startTimestamp: finalStart,
+      pauseStart: finalPause,
+      pausedDuration: finalPaused,
       areaReactions,
       coldCompressDone,
       repairMaskDone,
@@ -134,7 +189,6 @@ export default function ObservationPanel({
     addObservation(record);
     if (completed) {
       updateCustomerStatus(selectedCustomer.id, 'completed');
-      setTimerRunning(false);
     }
   };
 
@@ -154,6 +208,9 @@ export default function ObservationPanel({
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {observingList.map((c) => {
                 const obs = observations.find((o) => o.customerId === c.id);
+                const liveElapsed = obs
+                  ? calcElapsedSec(obs.startTimestamp ?? null, obs.pauseStart ?? null, obs.pausedDuration ?? 0, now)
+                  : 0;
                 return (
                   <div
                     key={c.id}
@@ -165,11 +222,15 @@ export default function ObservationPanel({
                       <div>
                         <div style={{ fontWeight: 600, fontSize: '14px' }}>{c.name}</div>
                         <div style={{ fontSize: '12px', color: 'var(--text-light)' }}>
-                          {obs && !obs.completed ? `已观察 ${formatTime(obs.duration)}` : c.appointment}
+                          {obs && !obs.completed ? `已观察 ${formatTime(liveElapsed)}` : c.appointment}
                         </div>
                       </div>
                       {obs && obs.completed && <span className="tag tag-success">已完成</span>}
-                      {obs && !obs.completed && <span className="tag tag-info">观察中</span>}
+                      {obs && !obs.completed && (
+                        <span className={`tag ${obs.pauseStart ? 'tag-warning' : 'tag-info'}`}>
+                          {obs.pauseStart ? '已暂停' : '观察中'}
+                        </span>
+                      )}
                     </div>
                   </div>
                 );
@@ -193,23 +254,29 @@ export default function ObservationPanel({
           <>
             <div className="grid grid-2" style={{ gridTemplateColumns: '280px 1fr', marginBottom: '20px' }}>
               <div className="timer-box">
-                <div className="timer-label">术后观察计时</div>
+                <div className="timer-label">
+                  术后观察计时 {isPaused && <span style={{ color: '#f5b041' }}>(已暂停)</span>}
+                </div>
                 <div className="timer-display">{formatTime(elapsed)}</div>
                 <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.6)', marginBottom: '4px' }}>
                   {startTime ? `开始时间 ${startTime}` : '尚未开始'}
                 </div>
                 <div style={{ fontSize: '12px', color: elapsed >= 1200 ? '#58d68d' : '#f5b041' }}>
-                  {elapsed >= 1200 ? '✅ 已达到建议观察时长（20分钟）' : '建议观察时长 ≥ 20分钟'}
+                  {elapsed >= 1200 ? '✅ 已达到建议观察时长（20分钟）' : `建议观察时长 ≥ 20分钟，还需 ${formatTime(1200 - elapsed)}`}
                 </div>
                 <div className="timer-controls">
-                  {!timerRunning ? (
-                    <button className="btn btn-success btn-sm" onClick={handleStartTimer}>
-                      {elapsed > 0 ? '继续' : '开始观察'}
-                    </button>
-                  ) : (
+                  {!hasStarted ? (
+                    <button className="btn btn-success btn-sm" onClick={handleStartTimer}>开始观察</button>
+                  ) : isRunning ? (
                     <button className="btn btn-warning btn-sm" onClick={handlePauseTimer}>暂停</button>
+                  ) : (
+                    <button className="btn btn-success btn-sm" onClick={handleStartTimer}>继续</button>
                   )}
-                  <button className="btn btn-outline btn-sm" style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.3)' }} onClick={handleResetTimer}>
+                  <button
+                    className="btn btn-outline btn-sm"
+                    style={{ color: '#fff', borderColor: 'rgba(255,255,255,0.3)' }}
+                    onClick={handleResetTimer}
+                  >
                     重置
                   </button>
                 </div>
@@ -245,6 +312,9 @@ export default function ObservationPanel({
             <div className="panel" style={{ marginBottom: '20px' }}>
               <div className="panel-header">
                 <div className="panel-title">📊 分区皮肤反应记录</div>
+                <span style={{ fontSize: '12px', color: 'var(--text-light)' }}>
+                  共 {AREAS.length} 个区域，缺失项已自动补出，可随时补填
+                </span>
               </div>
               <div className="panel-body">
                 <div className="area-reaction-grid">
@@ -336,6 +406,7 @@ export default function ObservationPanel({
             <div className="alert alert-info" style={{ marginBottom: '16px' }}>
               <span>📌</span>
               <div>
+                计时按真实时间持续进行：切换页面、暂存记录、刷新甚至关闭页面后再回来，都将自动延续之前的观察进度。
                 如出现水疱、明显灼痛、持续红肿不退等异常，请立即前往「异常上报」模块登记，并通知主治医生。
               </div>
             </div>

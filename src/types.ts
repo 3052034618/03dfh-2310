@@ -51,6 +51,9 @@ export interface PostObservationRecord {
   customerId: string;
   startTime: string;
   duration: number;
+  startTimestamp: number | null;
+  pauseStart: number | null;
+  pausedDuration: number;
   areaReactions: AreaReaction[];
   coldCompressDone: boolean;
   repairMaskDone: boolean;
