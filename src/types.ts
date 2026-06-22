@@ -11,12 +11,35 @@ export interface Customer {
   doctor: string;
   status: CustomerStatus;
   treatmentPlan?: string;
+  planUpdatedAt?: number;
+  planAuthor?: string;
   photoRequired?: boolean;
   needsDoctorReview?: boolean;
 }
 
+export type TimelineEventType =
+  | 'start'
+  | 'pause'
+  | 'resume'
+  | 'save'
+  | 'care_cold'
+  | 'care_mask'
+  | 'care_sunscreen'
+  | 'complete'
+  | 'reset';
+
+export interface TimelineEvent {
+  type: TimelineEventType;
+  timestamp: number;
+  label: string;
+  detail?: string;
+  operator: string;
+}
+
 export interface PreCheckRecord {
   customerId: string;
+  version: number;
+  createdAt: number;
   timestamp: string;
   nameVerified: boolean;
   treatmentSites: string[];
@@ -29,6 +52,8 @@ export interface PreCheckRecord {
 
 export interface ParameterRecord {
   customerId: string;
+  version: number;
+  createdAt: number;
   timestamp: string;
   deviceModel: string;
   treatmentHead: string;
@@ -54,6 +79,7 @@ export interface PostObservationRecord {
   startTimestamp: number | null;
   pauseStart: number | null;
   pausedDuration: number;
+  timeline: TimelineEvent[];
   areaReactions: AreaReaction[];
   coldCompressDone: boolean;
   repairMaskDone: boolean;

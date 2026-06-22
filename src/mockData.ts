@@ -1,5 +1,7 @@
 import type { Customer, PreCheckRecord, ParameterRecord, PostObservationRecord, AbnormalReport, HandoverLog } from './types';
 
+const NOW = Date.now();
+
 export const mockCustomers: Customer[] = [
   {
     id: 'C001',
@@ -12,6 +14,8 @@ export const mockCustomers: Customer[] = [
     doctor: '李医生',
     status: 'completed',
     treatmentPlan: '全脸 DPL 嫩肤，能量 15-18J/cm²，脉宽 10-15ms，3遍',
+    planUpdatedAt: NOW - 86400000,
+    planAuthor: '李医生',
     photoRequired: false,
     needsDoctorReview: false,
   },
@@ -26,6 +30,8 @@ export const mockCustomers: Customer[] = [
     doctor: '李医生',
     status: 'observing',
     treatmentPlan: '双颊+鼻部针对性祛斑，能量 16-20J/cm²，脉宽 12-18ms',
+    planUpdatedAt: NOW - 7200000,
+    planAuthor: '李医生',
     photoRequired: true,
     needsDoctorReview: false,
   },
@@ -40,6 +46,8 @@ export const mockCustomers: Customer[] = [
     doctor: '陈医生',
     status: 'treating',
     treatmentPlan: '双颊红血丝区，低能量多次，能量 12-15J/cm²，脉宽 20-30ms',
+    planUpdatedAt: NOW - 5400000,
+    planAuthor: '陈医生',
     photoRequired: false,
     needsDoctorReview: true,
   },
@@ -54,6 +62,8 @@ export const mockCustomers: Customer[] = [
     doctor: '李医生',
     status: 'checking',
     treatmentPlan: '全脸+颈部嫩肤，能量 14-17J/cm²，脉宽 10-15ms，2-3遍',
+    planUpdatedAt: NOW - 3600000,
+    planAuthor: '李医生',
     photoRequired: true,
     needsDoctorReview: false,
   },
@@ -101,12 +111,27 @@ export const mockCustomers: Customer[] = [
 export const mockPreChecks: PreCheckRecord[] = [
   {
     customerId: 'C001',
+    version: 1,
+    createdAt: NOW - 600000,
     timestamp: '09:20',
     nameVerified: true,
-    treatmentSites: ['额头', '双颊', '鼻部', '下颌'],
+    treatmentSites: ['额头', '左颊', '右颊', '鼻部', '下颌'],
     contraindications: [],
     recentSunExposure: '无',
     medicationUse: '无特殊用药',
+    planReviewed: true,
+    operator: '治疗师-王',
+  },
+  {
+    customerId: 'C001',
+    version: 2,
+    createdAt: NOW - 540000,
+    timestamp: '09:21',
+    nameVerified: true,
+    treatmentSites: ['额头', '左颊', '右颊', '鼻部', '下颌', '颈部'],
+    contraindications: [],
+    recentSunExposure: '轻度',
+    medicationUse: '无特殊用药，昨日服用维生素C',
     planReviewed: true,
     operator: '治疗师-王',
   },
@@ -115,15 +140,31 @@ export const mockPreChecks: PreCheckRecord[] = [
 export const mockParameters: ParameterRecord[] = [
   {
     customerId: 'C001',
+    version: 1,
+    createdAt: NOW - 480000,
     timestamp: '09:35',
     deviceModel: 'DPL 精准嫩肤仪 Pro',
-    treatmentHead: '500-600nm 治疗头',
+    treatmentHead: '500-600nm 嫩肤治疗头',
     energy: '16J/cm²',
     pulseWidth: '12ms',
     spotSize: '15×50mm',
     passes: 3,
     operator: '治疗师-王',
-    remark: '双颊能量调整至 18J/cm²',
+    remark: '初设参数',
+  },
+  {
+    customerId: 'C001',
+    version: 2,
+    createdAt: NOW - 420000,
+    timestamp: '09:37',
+    deviceModel: 'DPL 精准嫩肤仪 Pro',
+    treatmentHead: '500-600nm 嫩肤治疗头',
+    energy: '18J/cm²',
+    pulseWidth: '12ms',
+    spotSize: '15×50mm',
+    passes: 3,
+    operator: '治疗师-王',
+    remark: '双颊能量调整至 18J/cm²，患者耐受良好',
   },
 ];
 
@@ -132,9 +173,15 @@ export const mockObservations: PostObservationRecord[] = [
     customerId: 'C002',
     startTime: '10:50',
     duration: 1200,
-    startTimestamp: Date.now() - 1200 * 1000,
+    startTimestamp: NOW - 1200 * 1000,
     pauseStart: null,
     pausedDuration: 0,
+    timeline: [
+      { type: 'start', timestamp: NOW - 1200 * 1000, label: '开始观察', operator: '治疗师-王' },
+      { type: 'care_cold', timestamp: NOW - 1100 * 1000, label: '完成冷敷', detail: '医用冷敷贴 15 分钟', operator: '治疗师-王' },
+      { type: 'save', timestamp: NOW - 600 * 1000, label: '暂存记录', detail: '已记录分区反应', operator: '治疗师-王' },
+      { type: 'care_sunscreen', timestamp: NOW - 300 * 1000, label: '完成防晒叮嘱', operator: '治疗师-王' },
+    ],
     areaReactions: [
       { area: '左颊', redness: '轻度', burning: '轻微', remark: '有温热感' },
       { area: '右颊', redness: '轻度', burning: '轻微' },

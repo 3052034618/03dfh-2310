@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { Customer, PostObservationRecord, AbnormalReport, HandoverLog } from '../types';
 
 interface Props {
@@ -9,6 +9,75 @@ interface Props {
   addHandoverLog: (log: HandoverLog) => void;
 }
 
+type StageType = 'blocked' | 'time' | 'reaction' | 'care' | 'ready';
+
+interface StageInfo {
+  stage: StageType;
+  stageText: string;
+  blockText: string;
+  elapsed: number;
+}
+
+function formatTime(sec: number) {
+  sec = Math.max(0, Math.floor(sec));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function calcElapsedSec(
+  startTimestamp: number | null,
+  pauseStart: number | null,
+  pausedDuration: number,
+  now: number
+): number {
+  if (!startTimestamp) return 0;
+  const end = pauseStart ?? now;
+  const ms = end - startTimestamp - pausedDuration;
+  return Math.max(0, Math.floor(ms / 1000));
+}
+
+function getObservationStageInfo(o: PostObservationRecord): StageInfo {
+  const now = Date.now();
+  const elapsed = calcElapsedSec(o.startTimestamp ?? null, o.pauseStart ?? null, o.pausedDuration ?? 0, now);
+
+  if (!o.startTimestamp) {
+    return { stage: 'blocked', stageText: '未开始', blockText: '尚未开始观察', elapsed: 0 };
+  }
+
+  if (o.pauseStart) {
+    const lastEvent = [...(o.timeline ?? [])].sort((a, b) => b.timestamp - a.timestamp)[0];
+    const pauseReason = lastEvent?.detail || '客户离位/临时中断';
+    return { stage: 'blocked', stageText: '已暂停', blockText: `暂停中：${pauseReason}（已观察 ${formatTime(elapsed)}）`, elapsed };
+  }
+
+  if (!o.coldCompressDone) {
+    return { stage: 'care', stageText: '待护理', blockText: `卡在「冷敷处理」（已观察 ${formatTime(elapsed)}）`, elapsed };
+  }
+  if (!o.repairMaskDone) {
+    return { stage: 'care', stageText: '待护理', blockText: `卡在「修复面膜」（已观察 ${formatTime(elapsed)}）`, elapsed };
+  }
+  if (!o.sunscreenAdviceDone) {
+    return { stage: 'care', stageText: '待护理', blockText: `卡在「防晒叮嘱」（已观察 ${formatTime(elapsed)}）`, elapsed };
+  }
+
+  if (elapsed < 1200) {
+    return {
+      stage: 'time',
+      stageText: '待观察',
+      blockText: `观察时长不足（已观察 ${formatTime(elapsed)}，还需 ${formatTime(1200 - elapsed)}）`,
+      elapsed,
+    };
+  }
+
+  const anyReaction = o.areaReactions.some((r) => r.redness !== '无' || r.burning !== '无' || (r.remark && r.remark.trim()));
+  if (!anyReaction) {
+    return { stage: 'reaction', stageText: '待反应', blockText: `尚未填写分区反应（已观察 ${formatTime(elapsed)}）`, elapsed };
+  }
+
+  return { stage: 'ready', stageText: '可完成', blockText: `满足离院条件，待确认（已观察 ${formatTime(elapsed)}）`, elapsed };
+}
+
 export default function HandoverPanel({
   customers,
   observations,
@@ -16,12 +85,28 @@ export default function HandoverPanel({
   handoverLogs,
   addHandoverLog,
 }: Props) {
-  const unfinishedObservations = observations
-    .filter((o) => !o.completed)
-    .map((o) => {
-      const c = customers.find((cu) => cu.id === o.customerId);
-      return `${o.customerId} ${c?.name || '未知'}`;
-    });
+  const now = Date.now();
+
+  const unfinishedObservationsList = useMemo(
+    () =>
+      observations
+        .filter((o) => !o.completed)
+        .map((o) => {
+          const c = customers.find((cu) => cu.id === o.customerId);
+          const stageInfo = getObservationStageInfo(o);
+          return {
+            customerId: o.customerId,
+            customerName: c?.name || '未知',
+            customer: c,
+            stageInfo,
+          };
+        }),
+    [observations, customers, now]
+  );
+
+  const unfinishedObservationsPlain = unfinishedObservationsList.map(
+    (x) => `${x.customerId} ${x.customerName} — ${x.stageInfo.blockText}`
+  );
 
   const photosPending = customers
     .filter((c) => c.photoRequired && c.status !== 'completed')
@@ -44,19 +129,19 @@ export default function HandoverPanel({
   const handleHandover = () => {
     if (!canSubmit) return;
 
-    const now = new Date();
-    const y = now.getFullYear();
-    const m = String(now.getMonth() + 1).padStart(2, '0');
-    const d = String(now.getDate()).padStart(2, '0');
-    const hh = String(now.getHours()).padStart(2, '0');
-    const mm = String(now.getMinutes()).padStart(2, '0');
+    const nowDate = new Date();
+    const y = nowDate.getFullYear();
+    const m = String(nowDate.getMonth() + 1).padStart(2, '0');
+    const d = String(nowDate.getDate()).padStart(2, '0');
+    const hh = String(nowDate.getHours()).padStart(2, '0');
+    const mm = String(nowDate.getMinutes()).padStart(2, '0');
 
     const log: HandoverLog = {
       id: `HO${String(handoverLogs.length + 1).padStart(3, '0')}`,
       timestamp: `${y}-${m}-${d} ${hh}:${mm}`,
       shiftOperator: '治疗师-王',
       nextOperator: nextOperator.trim(),
-      unfinishedObservations,
+      unfinishedObservations: unfinishedObservationsPlain,
       photosPending,
       doctorReviews,
       abnormalReports: pendingAbnormals,
@@ -71,10 +156,18 @@ export default function HandoverPanel({
   };
 
   const totalIssues =
-    unfinishedObservations.length +
+    unfinishedObservationsList.length +
     photosPending.length +
     doctorReviews.length +
     pendingAbnormals.length;
+
+  const stageCounts = unfinishedObservationsList.reduce(
+    (acc, x) => {
+      acc[x.stageInfo.stage] = (acc[x.stageInfo.stage] || 0) + 1;
+      return acc;
+    },
+    {} as Record<string, number>
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -88,13 +181,42 @@ export default function HandoverPanel({
       <div className="summary-grid">
         <div className="summary-card warning">
           <div className="summary-card-label">⏱️ 未完成观察</div>
-          <div className="summary-card-value">{unfinishedObservations.length}</div>
-          {unfinishedObservations.length > 0 && (
-            <div className="summary-sublist">
-              {unfinishedObservations.map((x) => (
-                <div key={x}>• {x}</div>
-              ))}
-            </div>
+          <div className="summary-card-value">{unfinishedObservationsList.length}</div>
+          {unfinishedObservationsList.length > 0 && (
+            <>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', padding: '0 14px', marginBottom: '8px' }}>
+                {stageCounts.blocked ? <span className="stage-pill blocked">已暂停/未开始 {stageCounts.blocked}</span> : null}
+                {stageCounts.time ? <span className="stage-pill time">时长不足 {stageCounts.time}</span> : null}
+                {stageCounts.reaction ? <span className="stage-pill reaction">待填反应 {stageCounts.reaction}</span> : null}
+                {stageCounts.care ? <span className="stage-pill care">待完成护理 {stageCounts.care}</span> : null}
+                {stageCounts.ready ? <span className="stage-pill blocked" style={{ background: '#e8f8f0', color: '#27ae60', borderColor: '#a2d9b4' }}>可离院 {stageCounts.ready}</span> : null}
+              </div>
+              <div className="summary-sublist">
+                {unfinishedObservationsList.map((x) => (
+                  <div
+                    key={x.customerId}
+                    style={{
+                      padding: '8px 10px',
+                      background: 'rgba(255,255,255,0.4)',
+                      borderRadius: '8px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '4px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px' }}>
+                      <div style={{ fontWeight: 600, fontSize: '13px' }}>
+                        {x.customerId} {x.customerName}
+                      </div>
+                      <span className={`stage-pill ${x.stageInfo.stage}`}>{x.stageInfo.stageText}</span>
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                      {x.stageInfo.blockText}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
           )}
         </div>
         <div className="summary-card info">

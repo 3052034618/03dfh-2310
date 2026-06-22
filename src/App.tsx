@@ -99,27 +99,48 @@ export default function App() {
     );
   };
 
-  const addPreCheck = (record: PreCheckRecord) => {
+  const updateCustomerPlan = (customerId: string, plan: string, author: string) => {
+    setCustomers((prev) =>
+      prev.map((c) =>
+        c.id === customerId
+          ? {
+              ...c,
+              treatmentPlan: plan,
+              planUpdatedAt: Date.now(),
+              planAuthor: author,
+            }
+          : c
+      )
+    );
+  };
+
+  const addPreCheck = (record: Omit<PreCheckRecord, 'version' | 'createdAt'>) => {
     setPreChecks((prev) => {
-      const existing = prev.findIndex((p) => p.customerId === record.customerId);
-      if (existing >= 0) {
-        const updated = [...prev];
-        updated[existing] = record;
-        return updated;
-      }
-      return [record, ...prev];
+      const versionsForCustomer = prev.filter((p) => p.customerId === record.customerId);
+      const nextVersion = versionsForCustomer.length > 0
+        ? Math.max(...versionsForCustomer.map((p) => p.version)) + 1
+        : 1;
+      const full: PreCheckRecord = {
+        ...record,
+        version: nextVersion,
+        createdAt: Date.now(),
+      };
+      return [full, ...prev];
     });
   };
 
-  const addParameter = (record: ParameterRecord) => {
+  const addParameter = (record: Omit<ParameterRecord, 'version' | 'createdAt'>) => {
     setParameters((prev) => {
-      const existing = prev.findIndex((p) => p.customerId === record.customerId);
-      if (existing >= 0) {
-        const updated = [...prev];
-        updated[existing] = record;
-        return updated;
-      }
-      return [record, ...prev];
+      const versionsForCustomer = prev.filter((p) => p.customerId === record.customerId);
+      const nextVersion = versionsForCustomer.length > 0
+        ? Math.max(...versionsForCustomer.map((p) => p.version)) + 1
+        : 1;
+      const full: ParameterRecord = {
+        ...record,
+        version: nextVersion,
+        createdAt: Date.now(),
+      };
+      return [full, ...prev];
     });
   };
 
@@ -162,6 +183,7 @@ export default function App() {
             {...commonProps}
             preChecks={preChecks}
             addPreCheck={addPreCheck}
+            updateCustomerPlan={updateCustomerPlan}
           />
         );
       case 'parameters':
@@ -170,6 +192,7 @@ export default function App() {
             {...commonProps}
             parameters={parameters}
             addParameter={addParameter}
+            updateCustomerPlan={updateCustomerPlan}
           />
         );
       case 'observation':
